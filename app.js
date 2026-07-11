@@ -895,7 +895,55 @@ function wireUIEvents() {
         }, 3500);
     });
 
-    // Clear Logs logic removed by request
+// Clear Logs logic removed by request
+}
+
+// Custom Pull-to-Refresh Logic
+function initPullToRefresh() {
+    let touchStartY = 0;
+    let touchMoveY = 0;
+    const ptrIndicator = document.getElementById('ptr-indicator');
+    if (!ptrIndicator) return;
+
+    document.addEventListener('touchstart', (e) => {
+        if (window.scrollY === 0) {
+            touchStartY = e.touches[0].clientY;
+        }
+    }, {passive: true});
+
+    document.addEventListener('touchmove', (e) => {
+        if (touchStartY === 0) return;
+        touchMoveY = e.touches[0].clientY;
+        let pullDistance = touchMoveY - touchStartY;
+        
+        // If pulling down
+        if (pullDistance > 0) {
+            // Apply resistance to the pull
+            let height = Math.min(pullDistance * 0.4, 80); 
+            ptrIndicator.style.height = height + 'px';
+            ptrIndicator.style.transition = 'none'; // Disable transition while dragging
+        }
+    }, {passive: true});
+
+    document.addEventListener('touchend', (e) => {
+        if (touchStartY === 0) return;
+        let pullDistance = touchMoveY - touchStartY;
+        
+        ptrIndicator.style.transition = 'height 0.2s ease-out';
+        
+        if (pullDistance > 150) { // Threshold reached
+            ptrIndicator.style.height = '60px'; // Lock open while reloading
+            ptrIndicator.innerHTML = '<i class="fa-solid fa-rotate-right fa-spin" style="color: var(--color-on); font-size: 1.5rem;"></i>';
+            setTimeout(() => {
+                window.location.reload();
+            }, 400);
+        } else {
+            ptrIndicator.style.height = '0px'; // Snap back
+        }
+        
+        touchStartY = 0;
+        touchMoveY = 0;
+    });
 }
 
 // -------------------------------------------------------------
@@ -908,6 +956,9 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // Wire main control panels
     wireUIEvents();
+
+    // Setup Custom Pull-to-Refresh for Strict Layout
+    initPullToRefresh();
 
     speech.logToConsole("NavVision Spatial Bridge fully loaded.", "system-msg");
 

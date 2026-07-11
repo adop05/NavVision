@@ -20,9 +20,14 @@
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet">
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="style.css?v=23">
+    <link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
+    <!-- Pull to Refresh Indicator -->
+    <div id="ptr-indicator" style="height: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; background: var(--bg-primary); transition: height 0.2s ease-out; width: 100%;">
+        <i class="fa-solid fa-arrow-down" style="color: var(--text-muted); font-size: 1.2rem;"></i>
+    </div>
+
     <div class="app-container">
         
         <!-- Header Section -->
