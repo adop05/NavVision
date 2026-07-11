@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>NavVision requires access to your camera to capture live video for AI object detection and hazard analysis.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NavVision requires your location to provide accurate Mapbox routing and street identification.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>NavVision requires microphone access for potential voice commands.</string>
+</dict>
+</plist>
