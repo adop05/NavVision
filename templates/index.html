@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation Diagnostic Rig</title>
+    <style>
+        body { font-family: sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto
+        }
+        button { 
+            padding: 15px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            background-color: #ff4757;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin-top: 10px
+        }
+        button:disabled { 
+            background-color: #ccc;
+            cursor: not-allowed
+        }
+        .box { 
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Nav Branch Testing Interface</h2>
+    
+    <h3>Your Current Location:</h3>
+    <div id="locationDisplay" class="box">Fetching coordinates...</div>
+
+    <!-- NEW: A box specifically for the destination coordinates -->
+    <h3>Destination Location:</h3>
+    <div id="destDisplay" class="box">Waiting for voice input...</div>
+
+    <button id="btnVoiceCommand" disabled>Tap and Speak Destination</button>
+    <p><em>Example: "Student Union" or "Library"</em></p>
+
+    <h3>Live Transcription:</h3>
+    <div id="transcriptionDisplay" class="box" style="font-style: italic; color: #555;">Waiting for voice...</div>
+
+    <h3>Status Log:</h3>
+    <div id="statusLog" class="box">Waiting for GPS lock...</div>
+
+    <script>
+        const locationDisplay = document.getElementById('locationDisplay');
+        const destDisplay = document.getElementById('destDisplay');
+        const statusLog = document.getElementById('statusLog');
+        const btnVoiceCommand = document.getElementById('btnVoiceCommand');
+        const transcriptionDisplay = document.getElementById('transcriptionDisplay');
+        
+        let currentLong = null;
+        let currentLat = null;
+        
+        // NEW: Navigation State Variables
+        let navigationSteps = [];
+        let currentStepIndex = 0;
+        let watchId = null; // Stores the active GPS tracking session
+
+        function log(message) { statusLog.innerText = message; }
+
+        // 1. Initial Location Lock
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    currentLong = position.coords.longitude;
+                    currentLat = position.coords.latitude;
+                    locationDisplay.innerText = `Longitude: ${currentLong}\nLatitude: ${currentLat}`;
+                    btnVoiceCommand.disabled = false;
+                    log("GPS locked. Ready for voice command.");
+                },
+                (error) => log(`Error: ${error.message}`),
+                { enableHighAccuracy: true }
+            );
+        }
+
+        // 2. Microphone Engine (Unchanged)
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            btnVoiceCommand.disabled = true;
+        } else {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = true;
+
+            btnVoiceCommand.addEventListener('click', () => {
+                if (currentLong === null) return;
+                btnVoiceCommand.innerText = "Listening...";
+                recognition.start();
+            });
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+                    else interimTranscript += event.results[i][0].transcript;
+                }
+                transcriptionDisplay.innerText = finalTranscript + interimTranscript;
+
+                if (finalTranscript !== '') {
+                    btnVoiceCommand.innerText = "Tap and Speak Destination";
+                    sendToBackend({
+                        startLong: currentLong,
+                        startLat: currentLat,
+                        destination_text: finalTranscript.trim()
+                    });
+                }
+            };
+        }
+
+        // 3. Send Request and Start Tracking
+        function sendToBackend(payload) {
+            fetch('/get_route', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) return log(`Backend Error: ${data.error}`);
+
+                destDisplay.innerText = `Location: ${data.destination_found}\nLongitude: ${data.destLong}\nLatitude: ${data.destLat}`;
+                
+                // NEW: Load the array of steps into our state
+                navigationSteps = data.steps;
+                currentStepIndex = 0;
+                
+                // Speak the first step immediately ("Yay, matched! Head north...")
+                speakWithBrowserSpeech(`Yay, it's matched! Routing to ${data.destination_found}. ${navigationSteps[0].instruction}`);
+                currentStepIndex++; // Advance the counter to the next turn
+                
+                // Kick off the live tracking!
+                startLiveTracking();
+            })
+            .catch(err => log(`Network Error: ${err}`));
+        }
+
+        // NEW: Live GPS Tracking Engine
+        function startLiveTracking() {
+            log("Live navigation started...");
+            
+            // If already tracking, clear it to prevent duplicate sessions
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+            
+            watchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    locationDisplay.innerText = `Longitude: ${lng}\nLatitude: ${lat}`;
+
+                    // If we still have steps left to complete
+                    if (currentStepIndex < navigationSteps.length) {
+                        const nextStep = navigationSteps[currentStepIndex];
+                        // Mapbox coords are formatted as [longitude, latitude]
+                        const targetLng = nextStep.location[0];
+                        const targetLat = nextStep.location[1];
+                        
+                        // Calculate distance to the maneuver
+                        const distanceToTurn = getDistanceInMeters(lat, lng, targetLat, targetLng);
+                        
+                        // If within 15 meters of the turn point, speak the instruction!
+                        if (distanceToTurn < 15) {
+                            speakWithBrowserSpeech(nextStep.instruction);
+                            currentStepIndex++; // Move to the next step
+                        }
+                    } else {
+                        speakWithBrowserSpeech("You have arrived at your destination.");
+                        navigator.geolocation.clearWatch(watchId); // Stop tracking
+                        log("Arrived.");
+                    }
+                },
+                (error) => log(`Tracking Error: ${error.message}`),
+                { enableHighAccuracy: true, maximumAge: 0 } // maximumAge: 0 forces the phone to grab fresh GPS, not cached
+            );
+        }
+
+        // NEW: Haversine Formula (Calculates meters between two earth coordinates)
+        function getDistanceInMeters(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // Earth radius in meters
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c; // Returns distance in meters
+        }
+
+        function speakWithBrowserSpeech(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); 
+                const utterance = new SpeechSynthesisUtterance(text);
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+    </script>
+</body>
+</html>
