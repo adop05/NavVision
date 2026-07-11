@@ -13,6 +13,7 @@ This repository holds the **Frontend UI & Hardware Bridge** component.
 - **Continuous AI Inference Loop**: Continuously captures camera frames from a hidden canvas and streams them via `POST` requests to the Flask YOLOv8 backend.
 - **Instant Scene Description**: Register double-taps on the main scanner screen (or click the button) to trigger a deep, generative vision scene analysis from the AI backend.
 - **Configurable Developer Dashboard**: Easily change the Mapbox token, target coordinates, simulation mode, and backend URL on the fly without hardcoding values.
+- **Edge-to-Edge OLED UI**: Features a meticulously designed, zero-gap mobile layout (optimized for tall aspect ratios like the Samsung Galaxy S25 Ultra) heavily utilizing true blacks (`#080808`) for battery saving and high-contrast, low-smear usability.
 
 ---
 

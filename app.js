@@ -1,6 +1,7 @@
 /**
  * NavVision - Spatial Awareness & Navigation Assistant
  * Frontend & Hardware Bridge Logic
+ * Core logic managing camera, audio TTS, mapbox routing, and backend API interactions
  */
 
 // Global State
@@ -581,6 +582,7 @@ class CameraManager {
             speech.speak("Camera activated.");
             document.getElementById('btn-scan-toggle').innerHTML = '<i class="fa-solid fa-stop"></i> Stop Camera';
             document.getElementById('btn-scan-toggle').classList.add('btn-stop');
+            document.querySelector('.app-header').classList.add('camera-active');
         } catch (e) {
             console.error("Camera feed failed:", e);
             speech.speak("Camera access was denied or unavailable.");
@@ -608,6 +610,7 @@ class CameraManager {
         speech.speak("Camera deactivated.");
         document.getElementById('btn-scan-toggle').innerHTML = '<i class="fa-solid fa-camera"></i> Start Camera';
         document.getElementById('btn-scan-toggle').classList.remove('btn-stop');
+        document.querySelector('.app-header').classList.remove('camera-active');
     }
 
     toggleScanner() {
