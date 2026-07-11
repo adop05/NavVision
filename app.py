@@ -1,11 +1,13 @@
-import os
 from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS # You must import this
 import requests
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app) # You must initialize this to allow your UI to talk to the backend
 
 # 1. Configuration (Only pulls from .env securely now)
 MAPBOX_TOKEN = os.getenv("MAPBOX_TOKEN")
@@ -95,6 +97,13 @@ def get_route():
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+    # NEW: Add this dummy route so your JS stops throwing 404 errors
+@app.route('/detect', methods=['POST'])
+def detect_objects():
+    # Placeholder for your CV team's future logic
+    print("Frontend sent a frame for processing!") 
+    return jsonify({"status": "success", "hazard_distance": 6.0, "detections": []})
     
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

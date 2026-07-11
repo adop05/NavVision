@@ -1,213 +1,242 @@
+<!-- Main structure and layout defining the UI components for the web app -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navigation Diagnostic Rig</title>
-    <style>
-        body { font-family: sans-serif;
-            padding: 20px;
-            max-width: 600px;
-            margin: 0 auto
-        }
-        button { 
-            padding: 15px;
-            font-size: 16px;
-            cursor: pointer;
-            width: 100%;
-            background-color: #ff4757;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            margin-top: 10px
-        }
-        button:disabled { 
-            background-color: #ccc;
-            cursor: not-allowed
-        }
-        .box { 
-            background: #f0f0f0;
-            padding: 10px;
-            border-radius: 5px;
-            margin-top: 10px;
-            white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 14px
-        }
-    </style>
+    <title>NavVision - Navigation Assistant</title>
+    <meta name="description" content="NavVision is an accessible navigation assistant for the visually impaired, leveraging AI-powered object detection and Mapbox routing.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Mapbox GL JS & CSS -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+    <!-- Pull to Refresh Indicator -->
+    <div id="ptr-indicator" style="height: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; background: var(--bg-primary); transition: height 0.2s ease-out; width: 100%;">
+        <i class="fa-solid fa-arrow-down" style="color: var(--text-muted); font-size: 1.2rem;"></i>
+    </div>
 
-    <h2>Nav Branch Testing Interface</h2>
-    
-    <h3>Your Current Location:</h3>
-    <div id="locationDisplay" class="box">Fetching coordinates...</div>
-
-    <!-- NEW: A box specifically for the destination coordinates -->
-    <h3>Destination Location:</h3>
-    <div id="destDisplay" class="box">Waiting for voice input...</div>
-
-    <button id="btnVoiceCommand" disabled>Tap and Speak Destination</button>
-    <p><em>Example: "Student Union" or "Library"</em></p>
-
-    <h3>Live Transcription:</h3>
-    <div id="transcriptionDisplay" class="box" style="font-style: italic; color: #555;">Waiting for voice...</div>
-
-    <h3>Status Log:</h3>
-    <div id="statusLog" class="box">Waiting for GPS lock...</div>
-
-    <script>
-        const locationDisplay = document.getElementById('locationDisplay');
-        const destDisplay = document.getElementById('destDisplay');
-        const statusLog = document.getElementById('statusLog');
-        const btnVoiceCommand = document.getElementById('btnVoiceCommand');
-        const transcriptionDisplay = document.getElementById('transcriptionDisplay');
+    <div class="app-container">
         
-        let currentLong = null;
-        let currentLat = null;
-        
-        // NEW: Navigation State Variables
-        let navigationSteps = [];
-        let currentStepIndex = 0;
-        let watchId = null; // Stores the active GPS tracking session
+        <!-- Header Section -->
+        <header class="app-header">
+            <div class="brand">
+                <i class="fa-solid fa-radar brand-icon" aria-hidden="true"></i>
+                <div class="brand-text">
+                    <h1>NavVision</h1>
+                </div>
+            </div>
+        </header>
 
-        function log(message) { statusLog.innerText = message; }
-
-        // 1. Initial Location Lock
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    currentLong = position.coords.longitude;
-                    currentLat = position.coords.latitude;
-                    locationDisplay.innerText = `Longitude: ${currentLong}\nLatitude: ${currentLat}`;
-                    btnVoiceCommand.disabled = false;
-                    log("GPS locked. Ready for voice command.");
-                },
-                (error) => log(`Error: ${error.message}`),
-                { enableHighAccuracy: true }
-            );
-        }
-
-        // 2. Microphone Engine (Unchanged)
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            btnVoiceCommand.disabled = true;
-        } else {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = false;
-            recognition.interimResults = true;
-
-            btnVoiceCommand.addEventListener('click', () => {
-                if (currentLong === null) return;
-                btnVoiceCommand.innerText = "Listening...";
-                recognition.start();
-            });
-
-            recognition.onresult = (event) => {
-                let interimTranscript = '';
-                let finalTranscript = '';
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-                    else interimTranscript += event.results[i][0].transcript;
-                }
-                transcriptionDisplay.innerText = finalTranscript + interimTranscript;
-
-                if (finalTranscript !== '') {
-                    btnVoiceCommand.innerText = "Tap and Speak Destination";
-                    sendToBackend({
-                        startLong: currentLong,
-                        startLat: currentLat,
-                        destination_text: finalTranscript.trim()
-                    });
-                }
-            };
-        }
-
-        // 3. Send Request and Start Tracking
-        function sendToBackend(payload) {
-            fetch('/get_route', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) return log(`Backend Error: ${data.error}`);
-
-                destDisplay.innerText = `Location: ${data.destination_found}\nLongitude: ${data.destLong}\nLatitude: ${data.destLat}`;
-                
-                // NEW: Load the array of steps into our state
-                navigationSteps = data.steps;
-                currentStepIndex = 0;
-                
-                // Speak the first step immediately ("Yay, matched! Head north...")
-                speakWithBrowserSpeech(`Yay, it's matched! Routing to ${data.destination_found}. ${navigationSteps[0].instruction}`);
-                currentStepIndex++; // Advance the counter to the next turn
-                
-                // Kick off the live tracking!
-                startLiveTracking();
-            })
-            .catch(err => log(`Network Error: ${err}`));
-        }
-
-        // NEW: Live GPS Tracking Engine
-        function startLiveTracking() {
-            log("Live navigation started...");
+        <!-- Main Workspace Area -->
+        <main class="app-main">
             
-            // If already tracking, clear it to prevent duplicate sessions
-            if (watchId) navigator.geolocation.clearWatch(watchId);
+            <!-- Left Side: Camera feed and Radar diagnostics -->
+            <section class="viewport-section card" aria-label="Visual Feed and Sonar Radar">
+                
+                <div class="camera-radar-container">
+                    <!-- Live Camera Feed (scaled/rendered dynamically) -->
+                    <video id="video-feed" autoplay playsinline muted aria-hidden="true"></video>
+                    
+                    <!-- Canvas for capturing frames to send to Flask -->
+                    <canvas id="offscreen-canvas" width="640" height="480" style="display: none;" aria-hidden="true"></canvas>
+                    
+                    <!-- Sonar visualizer overlay -->
+                    <div class="radar-overlay" id="radar-visualizer">
+                        <div class="radar-ping-ring" id="radar-ping-ring" aria-hidden="true"></div>
+                        <div class="sonar-distance-label" id="sonar-distance-label" aria-live="polite">No Object Detected</div>
+                        
+                    </div>
+                </div>
+
+                <div class="scanner-controls">
+                    <button id="btn-scan-toggle" class="btn btn-large" aria-label="Double-tap to start or stop the spatial camera feed"><i class="fa-solid fa-camera" aria-hidden="true"></i> Start Camera</button>
+                </div>
+            </section>
+
+            <!-- Right Side: Navigation & Routing Map -->
+            <section class="navigation-section card" aria-label="Mapbox Navigation">
+                <div class="card-header mobile-hidden">
+                    <h2>Routing</h2>
+                </div>
+                
+                <!-- Mapbox Container -->
+                <div id="mapbox-container" aria-label="Map displaying calculated walking route">
+                    <!-- Fallback loading message -->
+                    <div class="map-loading" id="map-loading-screen" aria-hidden="true">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                        <p>Waiting for Mapbox API Token...</p>
+                    </div>
+                </div>
+
+                <div class="navigation-info">
+                    <div class="route-step-card" aria-live="polite">
+                        <div class="step-icon-container" id="nav-step-icon" aria-hidden="true">
+                            <i class="fa-solid fa-location-arrow"></i>
+                        </div>
+                        <div class="step-text-container">
+                            <div class="step-instruction" id="nav-instruction">No active route. Set a destination in the settings panel.</div>
+                            <div class="step-meta">
+                                <span id="nav-distance" aria-label="Distance remaining to next turn">--</span>
+                                <span id="nav-duration" aria-label="Time remaining to next turn">--</span>
+                            </div>
+
+                            <!-- ADD THIS BUTTON: -->
+                            <button id="btn-voice-dest" class="btn btn-primary" style="margin-top: 15px; width: 100%;">
+                                <i class="fa-solid fa-microphone"></i> Speak Destination
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
             
-            watchId = navigator.geolocation.watchPosition(
-                (position) => {
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
-                    locationDisplay.innerText = `Longitude: ${lng}\nLatitude: ${lat}`;
+        </main>
 
-                    // If we still have steps left to complete
-                    if (currentStepIndex < navigationSteps.length) {
-                        const nextStep = navigationSteps[currentStepIndex];
-                        // Mapbox coords are formatted as [longitude, latitude]
-                        const targetLng = nextStep.location[0];
-                        const targetLat = nextStep.location[1];
+        <!-- Bottom Row: Logs and Diagnostics -->
+        <footer class="app-footer">
+            <!-- Audio control buttons & quick stats -->
+            <div class="audio-controls-panel card" style="justify-content: center; display: flex;">
+                <h2 class="sr-only">Quick Controls</h2>
+                <div class="audio-buttons-grid" style="width: 100%;">
+                    <button id="btn-mute-sonar" class="btn btn-icon-label active" aria-pressed="false" aria-label="Toggle audio sonar ticks">
+                        <i class="fa-solid fa-volume-high" aria-hidden="true"></i>
+                        <span>Sonar Ticks</span>
+                    </button>
+                    <button id="btn-mute-speech" class="btn btn-icon-label active" aria-pressed="false" aria-label="Toggle voice feedback synthesis">
+                        <i class="fa-solid fa-comment-dots" aria-hidden="true"></i>
+                        <span>Voice TTS</span>
+                    </button>
+                    <button id="btn-trigger-speech-test" class="btn btn-icon-label" aria-label="Trigger audio announcement verification">
+                        <i class="fa-solid fa-circle-play" aria-hidden="true"></i>
+                        <span>Audio Test</span>
+                    </button>
+                    <button id="btn-toggle-settings" class="btn btn-icon-label" aria-label="Open developer configuration panel">
+                        <i class="fa-solid fa-sliders" aria-hidden="true"></i>
+                        <span>Settings</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Speech log console -->
+            <div class="log-console" id="log-console" aria-live="assertive" aria-label="Console log containing spoken text history">
+                <div class="log-entry system-msg">[System] Ready. Configure Mapbox Token & Backend URL in Settings.</div>
+            </div>
+        </footer>
+
+        <!-- Settings Modal / Overlay (Glassmorphism design) -->
+        <div class="settings-modal-overlay" id="settings-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <div class="settings-modal card">
+                <div class="modal-header">
+                    <h2 id="settings-title"><i class="fa-solid fa-gear" aria-hidden="true"></i> System Settings</h2>
+                    <button id="btn-close-settings" class="btn btn-icon" aria-label="Close settings"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+                <div class="modal-body">
+                    
+                    <!-- Backend API Settings -->
+                    <div class="settings-group">
+                        <h3><i class="fa-solid fa-server" aria-hidden="true"></i> Backend Configuration</h3>
+                        <div class="form-control">
+                            <label for="input-backend-url">Flask Backend Base URL (Ngrok)</label>
+                            <input type="url" id="input-backend-url" placeholder="e.g. http://localhost:5000 or https://xxx.ngrok-free.app" value="http://localhost:5000">
+                            <small class="form-help">Enter the ngrok tunnel HTTPS URL or local IP address of your Flask AI server.</small>
+                        </div>
+                        <div class="form-control-row">
+                            <div class="form-control">
+                                <label for="input-fps">Stream FPS</label>
+                                <input type="number" id="input-fps" min="1" max="30" value="5">
+                            </div>
+                            <div class="form-control">
+                                <label for="input-confidence">YOLO Confidence</label>
+                                <input type="range" id="input-confidence" min="10" max="100" value="45" aria-valuemin="10" aria-valuemax="100" aria-valuenow="45">
+                                <span id="confidence-val" aria-hidden="true">45%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mapbox Settings -->
+                    <div class="settings-group">
+                        <h3><i class="fa-solid fa-map" aria-hidden="true"></i> Mapbox & Geolocation</h3>
+                        <div class="form-control">
+                            <label for="input-mapbox-token">Mapbox Access Token</label>
+                            <input type="password" id="input-mapbox-token" placeholder="pk.eyJ1Ijoi...">
+                            <small class="form-help">Create a free token on Mapbox.com to enable maps & routing.</small>
+                        </div>
                         
-                        // Calculate distance to the maneuver
-                        const distanceToTurn = getDistanceInMeters(lat, lng, targetLat, targetLng);
-                        
-                        // If within 15 meters of the turn point, speak the instruction!
-                        if (distanceToTurn < 15) {
-                            speakWithBrowserSpeech(nextStep.instruction);
-                            currentStepIndex++; // Move to the next step
-                        }
-                    } else {
-                        speakWithBrowserSpeech("You have arrived at your destination.");
-                        navigator.geolocation.clearWatch(watchId); // Stop tracking
-                        log("Arrived.");
-                    }
-                },
-                (error) => log(`Tracking Error: ${error.message}`),
-                { enableHighAccuracy: true, maximumAge: 0 } // maximumAge: 0 forces the phone to grab fresh GPS, not cached
-            );
-        }
+                        <div class="form-control">
+                            <label for="select-gps-mode">GPS Location Mode</label>
+                            <select id="select-gps-mode">
+                                <option value="real">Real Device GPS (Requires HTTPS)</option>
+                                <option value="simulated">Simulated Route</option>
+                            </select>
+                        </div>
 
-        // NEW: Haversine Formula (Calculates meters between two earth coordinates)
-        function getDistanceInMeters(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; // Earth radius in meters
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R * c; // Returns distance in meters
-        }
+                        <!-- Simulation coordinates (shown if simulated selected) -->
+                        <div id="simulation-coordinates-panel">
+                            <div class="form-control-row">
+                                <div class="form-control">
+                                    <label for="sim-start-lat">Start Latitude</label>
+                                    <input type="number" id="sim-start-lat" step="0.000001" value="28.538336">
+                                </div>
+                                <div class="form-control">
+                                    <label for="sim-start-lon">Start Longitude</label>
+                                    <input type="number" id="sim-start-lon" step="0.000001" value="-81.379234">
+                                </div>
+                            </div>
+                            <div class="form-control-row">
+                                <div class="form-control">
+                                    <label for="sim-end-lat">Dest Latitude</label>
+                                    <input type="number" id="sim-end-lat" step="0.000001" value="28.542892">
+                                </div>
+                                <div class="form-control">
+                                    <label for="sim-end-lon">Dest Longitude</label>
+                                    <input type="number" id="sim-end-lon" step="0.000001" value="-81.377317">
+                                </div>
+                            </div>
+                            <button id="btn-trigger-simulation" class="btn btn-secondary btn-full" aria-label="Load coordinates and start route simulator">
+                                <i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> Load simulated route
+                            </button>
+                        </div>
+                    </div>
 
-        function speakWithBrowserSpeech(text) {
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel(); 
-                const utterance = new SpeechSynthesisUtterance(text);
-                window.speechSynthesis.speak(utterance);
-            }
-        }
-    </script>
+                    <!-- Simulator Diagnostics -->
+                    <div class="settings-group">
+                        <h3><i class="fa-solid fa-vial" aria-hidden="true"></i> Sonar & Hazard Testing</h3>
+                        <p class="form-help">Use this slider to test the synthesized audio sonar speed and tone locally without requiring the Python backend to be active.</p>
+                        <div class="form-control">
+                            <label for="range-test-distance">Simulated Hazard Distance: <span id="lbl-test-distance">Infinite</span></label>
+                            <input type="range" id="range-test-distance" min="0" max="6" step="0.1" value="6" aria-valuemin="0" aria-valuemax="6" aria-valuenow="6">
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button id="btn-save-settings" class="btn btn-primary" aria-label="Save configuration settings">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADD THIS SECTION HERE -->
+    <div id="route-modal" style="display:none; position:fixed; top:20%; left:10%; width:80%; background:var(--bg-card); color:white; padding:20px; border:2px solid var(--color-on); border-radius:12px; z-index:999; box-shadow:0 0 20px rgba(0,230,118,0.2);">
+        <h3 style="margin-bottom:10px; color:var(--cyan);">Navigation Results</h3>
+        <p id="modal-content" style="font-family:var(--font-mono); font-size:0.9rem; line-height:1.5;"></p>
+        <button onclick="document.getElementById('route-modal').style.display='none'" style="margin-top:15px; width:100%; padding:10px; background:var(--color-on); border:none; border-radius:6px; color:white; font-weight:bold; cursor:pointer;">Close Window</button>
+    </div>
+
+    </div>
+
+    <!-- Main JavaScript Logic -->
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
