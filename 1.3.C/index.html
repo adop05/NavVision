@@ -1,0 +1,250 @@
+<!-- Main structure and layout defining the UI components for the web app -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>NavVision - Navigation Assistant</title>
+    <meta name="description" content="NavVision is an accessible navigation assistant for the visually impaired, leveraging AI-powered object detection and Mapbox routing.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Mapbox GL JS & CSS -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css?v=30">
+</head>
+<body>
+    <!-- Pull to Refresh Indicator -->
+    <div id="ptr-indicator" style="height: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; background: var(--bg-primary); transition: height 0.2s ease-out; width: 100%;">
+        <i class="fa-solid fa-arrow-down" style="color: var(--text-muted); font-size: 1.2rem;"></i>
+    </div>
+
+    <div class="app-container">
+        
+        <!-- Header Section -->
+        <header class="app-header">
+            <div class="brand">
+                <i class="fa-solid fa-radar brand-icon" aria-hidden="true"></i>
+                <div class="brand-text">
+                    <h1>NavVision</h1>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace Area -->
+        <main class="app-main">
+            
+            <!-- Left Side: Camera feed and Radar diagnostics -->
+            <section class="viewport-section card" aria-label="Visual Feed and Sonar Radar">
+                
+                <div class="camera-radar-container">
+                    <!-- video-feed is hidden: camera passthrough now comes from a
+                         native ARSCNView positioned behind this transparent
+                         container, since ARKit needs exclusive camera access to
+                         provide LiDAR depth data (getUserMedia can't share the
+                         camera with an active ARSession). -->
+                    <video id="video-feed" autoplay playsinline muted aria-hidden="true" style="display: none;"></video>
+                    
+                    <!-- Sonar visualizer overlay -->
+                    <div class="radar-overlay" id="radar-visualizer">
+                        <div class="radar-ping-ring" id="radar-ping-ring" aria-hidden="true"></div>
+                        <div class="sonar-distance-label" id="sonar-distance-label" aria-live="polite">No Object Detected</div>
+                        
+                    </div>
+                </div>
+
+                <div class="scanner-controls">
+                    <button id="btn-scan-toggle" class="btn btn-large" aria-label="Double-tap to start or stop the spatial camera feed"><i class="fa-solid fa-camera" aria-hidden="true"></i> Start Camera</button>
+                </div>
+            </section>
+
+            <!-- Right Side: Navigation & Routing Map -->
+            <section class="navigation-section card" aria-label="Mapbox Navigation">
+                <div class="card-header mobile-hidden">
+                    <h2>Routing</h2>
+                </div>
+                
+                <!-- Mapbox Container -->
+                <div id="mapbox-container" aria-label="Map displaying calculated walking route">
+                    <!-- Fallback loading message -->
+                    <div class="map-loading" id="map-loading-screen" aria-hidden="true">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                        <p>Waiting for Mapbox API Token...</p>
+                    </div>
+                </div>
+
+                <div class="navigation-info">
+                    <div class="route-step-card" aria-live="polite">
+                        <div class="step-icon-container" id="nav-step-icon" aria-hidden="true">
+                            <i class="fa-solid fa-location-arrow"></i>
+                        </div>
+                        <div class="step-text-container">
+                            <div class="step-instruction" id="nav-instruction">No active route. Set a destination in the settings panel.</div>
+                            <div class="step-meta">
+                                <span id="nav-distance" aria-label="Distance remaining to next turn">--</span>
+                                <span id="nav-duration" aria-label="Time remaining to next turn">--</span>
+                            </div>
+
+                            <!-- Voice destination input. NOTE: Web Speech
+                                 Recognition (window.SpeechRecognition /
+                                 webkitSpeechRecognition) is not supported in
+                                 WKWebView/Safari — this button will hit the
+                                 "not supported" fallback on iOS until it's
+                                 replaced with a native SFSpeechRecognizer
+                                 bridge. Kept here so the UI/wiring is ready
+                                 to switch over once that bridge exists. -->
+                            <button id="btn-voice-dest" class="btn btn-primary" style="margin-top: 15px; width: 100%;">
+                                <i class="fa-solid fa-microphone"></i> Speak Destination
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+        </main>
+
+        <!-- Bottom Row: Logs and Diagnostics -->
+        <footer class="app-footer">
+            <!-- Audio control buttons & quick stats -->
+            <div class="audio-controls-panel card" style="justify-content: center; display: flex;">
+                <h2 class="sr-only">Quick Controls</h2>
+                <div class="audio-buttons-grid" style="width: 100%;">
+                    <button id="btn-mute-sonar" class="btn btn-icon-label active" aria-pressed="false" aria-label="Toggle audio distance alert">
+                        <i class="fa-solid fa-volume-high" aria-hidden="true"></i>
+                        <span>Distance Alert</span>
+                    </button>
+                    <button id="btn-mute-speech" class="btn btn-icon-label active" aria-pressed="false" aria-label="Toggle voice feedback synthesis">
+                        <i class="fa-solid fa-comment-dots" aria-hidden="true"></i>
+                        <span>Text-To-Speech</span>
+                    </button>
+                    <button id="btn-emergency" class="btn btn-icon-label" aria-label="Hold for emergency">
+                        <i class="fa-solid fa-triangle-exclamation" style="color: var(--color-off);" aria-hidden="true"></i>
+                        <span>Emergency</span>
+                    </button>
+                    <button id="btn-toggle-settings" class="btn btn-icon-label" aria-label="Open developer configuration panel">
+                        <i class="fa-solid fa-sliders" aria-hidden="true"></i>
+                        <span>Settings</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Speech log console -->
+            <div class="log-console" id="log-console" aria-live="assertive" aria-label="Console log containing spoken text history">
+                <div class="log-entry system-msg">[System] Ready. Configure Mapbox Token & Backend URL in Settings.</div>
+            </div>
+        </footer>
+
+        <!-- Settings Modal / Overlay (Glassmorphism design) -->
+        <div class="settings-modal-overlay" id="settings-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <div class="settings-modal card">
+                <div class="modal-header">
+                    <h2 id="settings-title"><i class="fa-solid fa-gear" aria-hidden="true"></i> System Settings</h2>
+                    <button id="btn-close-settings" class="btn btn-icon" aria-label="Close settings"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+                <div class="modal-body">
+                    
+                    <!-- Backend API Settings -->
+                    <div class="settings-group">
+                        <h3><i class="fa-solid fa-server" aria-hidden="true"></i> Backend Configuration</h3>
+                        <div class="form-control">
+                            <label for="input-backend-url">Flask Backend Base URL (Ngrok)</label>
+                            <input type="url" id="input-backend-url" placeholder="e.g. http://localhost:5000 or https://xxx.ngrok-free.app" value="http://localhost:5000">
+                            <small class="form-help">Enter the ngrok tunnel HTTPS URL or local IP address of your Flask AI server.</small>
+                        </div>
+                        <div class="form-control-row">
+                            <div class="form-control">
+                                <label for="input-fps">Stream FPS</label>
+                                <input type="number" id="input-fps" min="1" max="30" value="5">
+                            </div>
+                            <div class="form-control">
+                                <label for="input-confidence">YOLO Confidence</label>
+                                <input type="range" id="input-confidence" min="10" max="100" value="45" aria-valuemin="10" aria-valuemax="100" aria-valuenow="45">
+                                <span id="confidence-val" aria-hidden="true">45%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mapbox Settings -->
+                    <div class="settings-group">
+                        <h3><i class="fa-solid fa-map" aria-hidden="true"></i> Mapbox & Geolocation</h3>
+                        <div class="form-control">
+                            <label for="input-mapbox-token">Mapbox Access Token</label>
+                            <input type="password" id="input-mapbox-token" placeholder="pk.eyJ1Ijoi...">
+                            <small class="form-help">Create a free token on Mapbox.com to enable maps & routing.</small>
+                        </div>
+                        
+                        <div class="form-control">
+                            <label for="select-gps-mode">GPS Location Mode</label>
+                            <select id="select-gps-mode">
+                                <option value="real">Real Device GPS (Requires HTTPS)</option>
+                                <option value="simulated">Simulated Route</option>
+                            </select>
+                        </div>
+
+                        <!-- Simulation coordinates (shown if simulated selected) -->
+                        <div id="simulation-coordinates-panel">
+                            <div class="form-control-row">
+                                <div class="form-control">
+                                    <label for="sim-start-lat">Start Latitude</label>
+                                    <input type="number" id="sim-start-lat" step="0.000001" value="28.538336">
+                                </div>
+                                <div class="form-control">
+                                    <label for="sim-start-lon">Start Longitude</label>
+                                    <input type="number" id="sim-start-lon" step="0.000001" value="-81.379234">
+                                </div>
+                            </div>
+                            <div class="form-control-row">
+                                <div class="form-control">
+                                    <label for="sim-end-lat">Dest Latitude</label>
+                                    <input type="number" id="sim-end-lat" step="0.000001" value="28.542892">
+                                </div>
+                                <div class="form-control">
+                                    <label for="sim-end-lon">Dest Longitude</label>
+                                    <input type="number" id="sim-end-lon" step="0.000001" value="-81.377317">
+                                </div>
+                            </div>
+                            <button id="btn-trigger-simulation" class="btn btn-secondary btn-full" aria-label="Load coordinates and start route simulator">
+                                <i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i> Load simulated route
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Simulator Diagnostics -->
+                    <div class="settings-group">
+                        <h3><i class="fa-solid fa-vial" aria-hidden="true"></i> Sonar & Hazard Testing</h3>
+                        <p class="form-help">Use this slider to test the synthesized audio sonar speed and tone locally without requiring the Python backend to be active.</p>
+                        <div class="form-control">
+                            <label for="range-test-distance">Simulated Hazard Distance: <span id="lbl-test-distance">Infinite</span></label>
+                            <input type="range" id="range-test-distance" min="0" max="1.7" step="0.02" value="1.7" aria-valuemin="0" aria-valuemax="1.7" aria-valuenow="1.7">
+                        </div>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button id="btn-save-settings" class="btn btn-primary" aria-label="Save configuration settings">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Voice-destination route results popup -->
+        <div id="route-modal" style="display:none; position:fixed; top:20%; left:10%; width:80%; background:var(--bg-card); color:white; padding:20px; border:2px solid var(--color-on); border-radius:12px; z-index:999; box-shadow:0 0 20px rgba(0,230,118,0.2);" role="dialog" aria-modal="true" aria-labelledby="route-modal-title">
+            <h3 id="route-modal-title" style="margin-bottom:10px; color:var(--cyan);">Navigation Results</h3>
+            <p id="modal-content" style="font-family:var(--font-mono); font-size:0.9rem; line-height:1.5;"></p>
+            <button onclick="document.getElementById('route-modal').style.display='none'" style="margin-top:15px; width:100%; padding:10px; background:var(--color-on); border:none; border-radius:6px; color:white; font-weight:bold; cursor:pointer;">Close Window</button>
+        </div>
+
+    </div>
+
+    <!-- Main JavaScript Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
