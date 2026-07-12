@@ -982,7 +982,7 @@ function wireUIEvents() {
         }, 3500);
     });
 
-    // Speak Destination Button (UPGRADED)
+ // Speak Destination Button (UPGRADED with Camera Hand-off)
 document.getElementById('btn-voice-dest').addEventListener('click', () => {
     triggerHaptic(50);
     
@@ -1000,19 +1000,50 @@ document.getElementById('btn-voice-dest').addEventListener('click', () => {
 
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
-    recognition.interimResults = false; // We just want the single final phrase
+    recognition.interimResults = false;
     
     const btn = document.getElementById('btn-voice-dest');
     btn.innerHTML = '<i class="fa-solid fa-ear-listen"></i> Listening...';
     
-    // Short beep to let you know it's ready (better than TTS overlapping)
+    // Use a variable to store the stream temporarily
+    let savedStream = null;
+
+    recognition.onstart = () => {
+        if (state.isScanning && camera.stream) {
+            // 1. Physically nullify the video stream object
+            savedStream = camera.stream;
+            camera.stream.getTracks().forEach(track => track.stop());
+            camera.video.srcObject = null;
+            
+            speech.logToConsole("Hardware released for mic...", "system-msg");
+        }
+    };
+
+    recognition.onspeechend = () => {
+        recognition.stop();
+        
+        // 2. Re-initialize the stream object exactly as you did in startCamera()
+        if (savedStream) {
+            const constraints = {
+                video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+                audio: true
+            };
+            navigator.mediaDevices.getUserMedia(constraints).then(newStream => {
+                camera.stream = newStream;
+                camera.video.srcObject = newStream;
+                savedStream = null;
+            });
+        }
+        btn.innerHTML = '<i class="fa-solid fa-microphone"></i> Speak Destination';
+    };
+
+    // Short beep to let you know it's ready
     sonar.playBeep(600, 0.1); 
     
     recognition.start();
 
     // 1. When it successfully hears a result
     recognition.onresult = (event) => {
-        // Grab text, clean off periods/commas, and trim spaces
         const transcript = event.results[0][0].transcript.replace(/[.,]/g, '').trim();
         speech.logToConsole(`Heard: "${transcript}"`, "system-msg");
         
@@ -1023,14 +1054,21 @@ document.getElementById('btn-voice-dest').addEventListener('click', () => {
         fetchNavigation(state.currentLong, state.currentLat, transcript);
     };
 
-    // 2. When you stop speaking, tell the mic to cut off immediately
+    // 2. When you stop speaking, tell the mic to cut off and resume camera[cite: 17]
     recognition.onspeechend = () => {
         recognition.stop();
+        if (state.isScanning) {
+            camera.video.play(); // Resume the camera feed[cite: 17]
+        }
+        btn.innerHTML = '<i class="fa-solid fa-microphone"></i> Speak Destination';
     };
 
-    // 3. If it fails or hears nothing, reset the UI gracefully
+    // 3. If it fails or hears nothing, reset the UI and resume camera
     recognition.onerror = (event) => {
         console.warn("Speech API Error:", event.error);
+        if (state.isScanning) {
+            camera.video.play(); // Ensure camera resumes even on error[cite: 17]
+        }
         btn.innerHTML = '<i class="fa-solid fa-microphone"></i> Speak Destination';
         
         if (event.error === 'no-speech') {
