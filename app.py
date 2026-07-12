@@ -101,9 +101,20 @@ def get_route():
     # NEW: Add this dummy route so your JS stops throwing 404 errors
 @app.route('/detect', methods=['POST'])
 def detect_objects():
-    # Placeholder for your CV team's future logic
-    print("Frontend sent a frame for processing!") 
-    return jsonify({"status": "success", "hazard_distance": 6.0, "detections": []})
+    # Placeholder for your CV logic
+    calculated_distance = 1.5 # Example: replace with your actual CV distance calculation
     
+    # Calculate intensity: closer = higher intensity
+    # 6.0m = 0 intensity, < 1.0m = high intensity (e.g., 200ms)
+    vibration_pattern = 0
+    if calculated_distance < 3.0:
+        vibration_pattern = int((3.0 - calculated_distance) * 50) + 50
+        
+    return jsonify({
+        "status": "success", 
+        "hazard_distance": calculated_distance, 
+        "vibration_ms": vibration_pattern, # New field
+        "detections": []
+    })
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
